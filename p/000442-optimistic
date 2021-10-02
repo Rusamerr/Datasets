@@ -1,0 +1,106 @@
+# PE Grammar for bootstrap peg language
+#
+# Adapted from peg.peg.
+
+# Hierarchical syntax
+Grammar		<- Spacing 'package' MustSpacing Identifier      { p.AddPackage(text) }
+			   Import*
+                           'type' MustSpacing Identifier         { p.AddPeg(text) }
+                           'Peg' Spacing Action              { p.Addtate(text) }
+                           Definition Definition* EndOfFile
+
+Import		<- 'import' Spacing ["] < ([a-zA-Z_/.]/'-')([a-zA-Z_/.]/'-')* > ["] Spacing { p.AddImport(text) }
+
+Definition	<- Identifier 			{ p.AddRule(text) }
+		     LeftArrow Expression 	{ p.AddExpression() }
+Expression	<- Sequence (Slash Sequence	{ p.AddAlternate() }
+			    )* (Slash           { p.AddNil(); p.AddAlternate() }
+                               )?
+                 /				{ p.AddNil() }
+Sequence	<- Prefix (Prefix		{ p.AddSequence() }
+			  )*
+Prefix		<- And Action			{ p.AddPredicate(text) }
+		 / Not Action			{ p.AddStateChange(text) }
+		 / And Suffix			{ p.AddPeekFor() }
+		 / Not Suffix			{ p.AddPeekNot() }
+		 /     Suffix
+Suffix          <- Primary (Question            { p.AddQuery() }
+                           / Star               { p.AddStar() }
+                           / Plus               { p.AddPlus() }
+                           )?
+Primary	        <- Identifier !LeftArrow        { p.AddName(text) }
+                 / Open Expression Close
+                 / Literal
+                 / Class
+                 / Dot                          { p.AddDot() }
+                 / Action                       { p.AddAction(text) }
+                 / Begin Expression End         { p.AddPush() }
+
+# Lexical syntax
+
+Identifier	<- < IdentStart IdentCont* > Spacing
+IdentStart	<- [A-Za-z_]
+IdentCont	<- IdentStart / [0-9]
+Literal		<- ['] (!['] Char)? (!['] Char                { p.AddSequence() }
+                                    )* ['] Spacing
+		 / ["] (!["] DoubleChar)? (!["] DoubleChar    { p.AddSequence() }
+                                          )* ["] Spacing
+Class		<- ( '[[' ( '^' DoubleRanges              { p.AddPeekNot(); p.AddDot(); p.AddSequence() }
+                          / DoubleRanges )?
+                     ']]'
+                   / '[' ( '^' Ranges                     { p.AddPeekNot(); p.AddDot(); p.AddSequence() }
+                         / Ranges )?
+                     ']' )
+                   Spacing
+Ranges		<- !']' Range (!']' Range  { p.AddAlternate() }
+                              )*
+DoubleRanges	<- !']]' DoubleRange (!']]' DoubleRange  { p.AddAlternate() }
+                                     )*
+Range		<- Char '-' Char              { p.AddRange() }
+                 / Char
+DoubleRange	<- Char '-' Char              { p.AddDoubleRange() }
+                 / DoubleChar
+Char            <- Escape
+                 / !'\\' <.>                  { p.AddCharacter(text) }
+DoubleChar	<- Escape
+		 / <[a-zA-Z]>                 { p.AddDoubleCharacter(text) }
+                 / !'\\' <.>                  { p.AddCharacter(text) }
+Escape          <- '\\' [aA]                  { p.AddCharacter("\a") }   # bell
+                 / '\\' [bB]                  { p.AddCharacter("\b") }   # bs
+                 / '\\' [eE]                  { p.AddCharacter("\x1B") } # esc
+                 / '\\' [fF]                  { p.AddCharacter("\f") }   # ff
+                 / '\\' [nN]                  { p.AddCharacter("\n") }   # nl
+                 / '\\' [rR]                  { p.AddCharacter("\r") }   # cr
+                 / '\\' [tT]                  { p.AddCharacter("\t") }   # ht
+                 / '\\' [vV]                  { p.AddCharacter("\v") }   # vt
+                 / '\\' [']		      { p.AddCharacter("'") }
+                 / '\\"'		      { p.AddCharacter("\"") }
+                 / '\\['                      { p.AddCharacter("[") }
+                 / '\\]'                      { p.AddCharacter("]") }
+                 / '\\-'                      { p.AddCharacter("-") }
+                 / '\\' '0'[xX] <[0-9a-fA-F][0-9a-fA-F]*>     { p.AddHexaCharacter(text) }
+                 / '\\' <[0-3][0-7][0-7]>     { p.AddOctalCharacter(text) }
+                 / '\\' <[0-7][0-7]?>         { p.AddOctalCharacter(text) }
+                 / '\\\\'                     { p.AddCharacter("\\") }
+LeftArrow	<- ('<-' / '\0x2190') Spacing
+Slash		<- '/' Spacing
+And		<- '&' Spacing
+Not		<- '!' Spacing
+Question	<- '?' Spacing
+Star		<- '*' Spacing
+Plus		<- '+' Spacing
+Open		<- '(' Spacing
+Close		<- ')' Spacing
+Dot		<- '.' Spacing
+SpaceComment	<- (Space / Comment)
+Spacing		<- SpaceComment*
+MustSpacing	<- SpaceComment Spacing
+Comment		<- '#' (!EndOfLine .)* EndOfLine
+Space		<- ' ' / '\0x9' / EndOfLine
+EndOfLine	<- '\0xd\0xa' / '\0xa' / '\0xd'
+EndOfFile	<- !.
+Action		<- '{' < ActionBody* > '}' Spacing
+ActionBody	<- ![{}]. / '{' ActionBody* '}'
+Begin		<- '<' Spacing
+End		<- '>' Spacing
+
